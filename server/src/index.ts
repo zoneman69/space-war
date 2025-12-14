@@ -74,7 +74,8 @@ let gameState: GameState = {
   fleets: [],
   currentPlayerId: "",
   phase: "income",
-  round: 1
+  round: 1,
+  lastCombatLog: []
 };
 
 // --- REST routes ---
@@ -175,6 +176,18 @@ interface PurchasePayload {
   count: number;
 }
 
+interface PurchasePayload {
+  playerName: string;
+  unitType: UnitType;
+  count: number;
+}
+
+interface MovePayload {
+  playerName: string;
+  fromSystemId: string;
+  toSystemId: string;
+}
+
 function handlePurchase(payload: PurchasePayload) {
   const { playerName, unitType, count } = payload;
 
@@ -222,6 +235,201 @@ function handlePurchase(payload: PurchasePayload) {
     `Player ${player.displayName} bought ${count} ${unitDef.name}(s) for ${totalCost}, remaining ${player.resources}`
   );
 }
+
+function handleMove(payload: MovePayload) {
+  const { playerName, fromSystemId, toSystemId } = payload;
+
+  const player = gameState.players.find(
+    (p) => p.displayName === playerName
+  );
+  if (!player) {
+    console.log("Move failed: player not found", playerName);
+    return;
+  }
+
+  const fromSystem = gameState.systems.find((s) => s.id === fromSystemId);
+  const toSystem = gameState.systems.find((s) => s.id === toSystemId);
+
+  if (!fromSystem || !toSystem) {
+    console.log("Move failed: invalid system(s)", fromSystemId, toSystemId);
+    return;
+  }
+
+  const isNeighbor = fromSystem.connectedSystems.includes(toSystem.id);
+  if (!isNeighbor) {
+    console.log(
+      `Move failed: ${fromSystem.name} is not connected to ${toSystem.name}`
+    );
+    return;
+  }
+
+  const fleet = gameState.fleets.find(
+    (f) =>
+      f.ownerId === player.id &&
+      f.locationSystemId === fromSystem.id &&
+      f.units.length > 0
+  );
+
+  if (!fleet) {
+    console.log(
+      `Move failed: no fleet for ${player.displayName} at ${fromSystem.name}`
+    );
+    return;
+  }
+
+  fleet.locationSystemId = toSystem.id;
+
+  console.log(
+    `Moved fleet ${fleet.id} of ${player.displayName} from ${fromSystem.name} to ${toSystem.name}`
+  );
+}
+
+
+function rollDie(): number {
+  return Math.floor(Math.random() * 6) + 1;
+}
+
+function resolveCombatAtSystem(systemId: string) {
+  const system = gameState.systems.find((s) => s.id === systemId);
+  if (!system) {
+    console.log("Combat failed: system not found", systemId);
+    return;
+  }
+
+  const fleetsHere = gameState.fleets.filter(
+    (f) => f.locationSystemId === system.id && f.units.length > 0
+  );
+
+  const ownerIds = Array.from(
+    new Set(fleetsHere.map((f) => f.ownerId))
+  );
+
+  if (ownerIds.length <= 1) {
+    console.log("No combat: less than 2 sides in", system.name);
+    return;
+  }
+
+  console.log("Resolving combat at", system.name);
+
+  const log: string[] = [];
+  log.push(`Combat at ${system.name}`);
+
+  // Build sides: playerId -> units
+  const sides: {
+    playerId: string;
+    units: Unit[];
+  }[] = ownerIds.map((pid) => ({
+    playerId: pid,
+    units: fleetsHere
+      .filter((f) => f.ownerId === pid)
+      .flatMap((f) => f.units)
+  }));
+
+  let round = 1;
+
+  const maxRounds = 50;
+
+  while (
+    sides.filter((s) => s.units.length > 0).length > 1 &&
+    round <= maxRounds
+  ) {
+    log.push(`Round ${round}`);
+
+    // map from playerId -> hits inflicted
+    const hits: Record<string, number> = {};
+
+    // Each side rolls attack dice for each unit
+    for (const side of sides) {
+      if (side.units.length === 0) continue;
+
+      let sideHits = 0;
+      for (const unit of side.units) {
+        const def = UNIT_DEFS[unit.type];
+        const roll = rollDie();
+        if (roll <= def.attack) {
+          sideHits++;
+        }
+      }
+      hits[side.playerId] = sideHits;
+      const player = gameState.players.find((p) => p.id === side.playerId);
+      log.push(
+        `  ${player?.displayName ?? side.playerId} scores ${sideHits} hit(s)`
+      );
+    }
+
+    // Apply hits to opponents
+    for (const side of sides) {
+      const enemyHits = Object.entries(hits)
+        .filter(([pid]) => pid !== side.playerId)
+        .reduce((sum, [, h]) => sum + h, 0);
+
+      for (let i = 0; i < enemyHits; i++) {
+        if (side.units.length === 0) break;
+        side.units.pop(); // remove one unit
+      }
+    }
+
+    // Remove destroyed sides from log perspective
+    const alive = sides
+      .filter((s) => s.units.length > 0)
+      .map((s) => {
+        const player = gameState.players.find((p) => p.id === s.playerId);
+        return `${player?.displayName ?? s.playerId} (${s.units.length} units)`;
+      });
+
+    log.push(`  Survivors: ${alive.join(", ") || "none"}`);
+
+    round++;
+  }
+
+  const survivingSides = sides.filter((s) => s.units.length > 0);
+
+  // Clear fleets at this system, then recreate from remaining units
+  gameState.fleets = gameState.fleets.filter(
+    (f) => f.locationSystemId !== system.id
+  );
+
+  if (survivingSides.length === 0) {
+    log.push("Combat result: mutual destruction. No winner.");
+    // Keep system owner as-is
+  } else if (survivingSides.length === 1) {
+    const winnerSide = survivingSides[0];
+    const winnerPlayer = gameState.players.find(
+      (p) => p.id === winnerSide.playerId
+    );
+    log.push(
+      `Combat result: ${winnerPlayer?.displayName ?? winnerSide.playerId} wins with ${winnerSide.units.length} unit(s).`
+    );
+
+    // Create a single fleet for the winner at this system
+    const newFleet: Fleet = {
+      id: `fleet-${nextFleetNum++}`,
+      ownerId: winnerSide.playerId,
+      locationSystemId: system.id,
+      units: winnerSide.units
+    };
+    gameState.fleets.push(newFleet);
+
+    // Winner takes control of the system
+    system.ownerId = winnerSide.playerId;
+  } else {
+    log.push("Combat ended with multiple surviving sides (hit cap).");
+    // Re-create fleets for each side
+    for (const side of survivingSides) {
+      const newFleet: Fleet = {
+        id: `fleet-${nextFleetNum++}`,
+        ownerId: side.playerId,
+        locationSystemId: system.id,
+        units: side.units
+      };
+      gameState.fleets.push(newFleet);
+    }
+  }
+
+  gameState.lastCombatLog = log;
+  console.log(log.join("\n"));
+}
+
 
 // --- Socket.IO events ---
 
@@ -301,12 +509,26 @@ io.on("connection", (socket) => {
     io.emit("gameState", gameState);
   });
 
+    socket.on("moveFleet", (payload: MovePayload) => {
+    console.log("Received moveFleet:", payload);
+    handleMove(payload);
+    io.emit("gameState", gameState);
+  });
+
+  socket.on("resolveCombat", (systemId: string) => {
+    console.log("Received resolveCombat for system", systemId);
+    resolveCombatAtSystem(systemId);
+    io.emit("gameState", gameState);
+  });
+
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
   });
 });
 
+
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
+

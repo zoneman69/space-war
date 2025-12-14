@@ -4,14 +4,17 @@ import {
   PlayerState,
   StarSystem,
   UnitType,
-  UNIT_DEFS
+  UNIT_DEFS,
+  Fleet
 } from "@space-war/shared";
 import {
   initSocket,
   joinGame,
   startGame,
   endTurn,
-  purchaseUnits
+  purchaseUnits,
+  moveFleet,
+  resolveCombat
 } from "./api/socket";
 import GalaxyMap from "./components/GalaxyMap";
 
@@ -31,6 +34,8 @@ const App: React.FC = () => {
   const [selectedUnitType, setSelectedUnitType] = useState<UnitType>("fighter");
   const [purchaseCount, setPurchaseCount] = useState("1");
 
+  const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
+
   useEffect(() => {
     initSocket((state) => setGameState(state));
   }, []);
@@ -49,16 +54,9 @@ const App: React.FC = () => {
     endTurn();
   };
 
-  const handlePurchase = () => {
-    if (!name.trim()) return;
-    const count = parseInt(purchaseCount, 10);
-    if (isNaN(count) || count <= 0) return;
-
-    purchaseUnits(name.trim(), selectedUnitType, count);
-  };
-
   const players: PlayerState[] = gameState?.players ?? [];
   const systems: StarSystem[] = gameState?.systems ?? [];
+  const fleets: Fleet[] = gameState?.fleets ?? [];
 
   const currentPlayer =
     players.find((p) => p.id === gameState?.currentPlayerId) || null;
@@ -73,6 +71,109 @@ const App: React.FC = () => {
 
   const isMyTurn =
     !!me && currentPlayer && me.id === currentPlayer.id;
+
+  const selectedSystem =
+    systems.find((s) => s.id === selectedSystemId) || null;
+
+   const fleetsAtSelected = selectedSystem
+    ? fleets.filter((f) => f.locationSystemId === selectedSystem.id)
+    : [];
+
+  const myFleetsAtSelected =
+    me && selectedSystem
+      ? fleetsAtSelected.filter((f) => f.ownerId === me.id)
+      : [];
+
+  let allowedDestSystemIds: string[] = [];
+  if (
+    selectedSystem &&
+    me &&
+    isMyTurn &&
+    gameStarted &&
+    myFleetsAtSelected.some((f) => f.units.length > 0)
+  ) {
+    allowedDestSystemIds = selectedSystem.connectedSystems;
+  }
+
+  const hasCombat =
+    fleetsAtSelected.length > 0 &&
+    new Set(fleetsAtSelected.map((f) => f.ownerId)).size > 1;
+
+  const handlePurchase = () => {
+    if (!name.trim()) return;
+    const count = parseInt(purchaseCount, 10);
+    if (isNaN(count) || count <= 0) return;
+
+    purchaseUnits(name.trim(), selectedUnitType, count);
+  };
+
+  const handleResolveCombat = () => {
+    if (!selectedSystem) return;
+    resolveCombat(selectedSystem.id);
+  };
+
+  const handleSystemClick = (systemId: string) => {
+    if (!gameState) {
+      setSelectedSystemId(systemId);
+      return;
+    }
+
+    const clickedSystem = systems.find((s) => s.id === systemId);
+    if (!clickedSystem) {
+      setSelectedSystemId(null);
+      return;
+    }
+
+    // If no player or no turn logic, just select system
+    if (!me || !gameStarted || !isMyTurn) {
+      setSelectedSystemId(systemId);
+      return;
+    }
+
+    // No selection yet -> pick source
+    if (!selectedSystemId) {
+      setSelectedSystemId(systemId);
+      return;
+    }
+
+    // Clicking same system toggles selection off
+    if (selectedSystemId === systemId) {
+      setSelectedSystemId(null);
+      return;
+    }
+
+    const from = systems.find((s) => s.id === selectedSystemId);
+    const to = clickedSystem;
+
+    if (!from || !to) {
+      setSelectedSystemId(systemId);
+      return;
+    }
+
+    const hasMyFleetHere = fleets.some(
+      (f) =>
+        f.ownerId === me.id &&
+        f.locationSystemId === from.id &&
+        f.units.length > 0
+    );
+
+    if (!hasMyFleetHere) {
+      // No fleet to move from that system, just select the new one
+      setSelectedSystemId(systemId);
+      return;
+    }
+
+    const isNeighbor = from.connectedSystems.includes(to.id);
+    if (!isNeighbor) {
+      // not a valid move, just change selection
+      setSelectedSystemId(systemId);
+      return;
+    }
+
+    // Valid move: send to server
+    moveFleet(name.trim(), from.id, to.id);
+    setSelectedSystemId(null);
+  };
 
   const selectedUnitDef = UNIT_DEFS[selectedUnitType];
   const totalCost =
@@ -214,9 +315,96 @@ const App: React.FC = () => {
                 Purchase
               </button>
             </div>
-            <p style={{ fontSize: "0.9em", color: "#555", marginTop: "0.25rem" }}>
+            <p
+              style={{
+                fontSize: "0.9em",
+                color: "#555",
+                marginTop: "0.25rem"
+              }}
+            >
               Total cost: {totalCost} | Units spawn at your home system.
             </p>
+          </>
+        )}
+      </section>
+
+      {/* Selected system info */}
+      <section
+        style={{
+          marginBottom: "1rem",
+          padding: "0.5rem",
+          border: "1px solid #ccc"
+        }}
+      >
+        <h2>Selected System</h2>
+        {!selectedSystem ? (
+          <p>Click a system on the map to inspect it.</p>
+        ) : (
+          <>
+            <p>
+              <strong>{selectedSystem.name}</strong>
+            </p>
+            <p>
+              Owner:{" "}
+              {(() => {
+                const owner = players.find(
+                  (p) => p.id === selectedSystem.ownerId
+                );
+                return owner ? (
+                  owner.displayName
+                ) : (
+                  <span style={{ color: "#999" }}>Unowned</span>
+                );
+              })()}
+            </p>
+            <p>Resources: {selectedSystem.resourceValue}</p>
+            <p>Shipyard: {selectedSystem.hasShipyard ? "Yes" : "No"}</p>
+
+            <h3>Fleets here</h3>
+            {fleetsAtSelected.length === 0 ? (
+              <p>No fleets in this system.</p>
+            ) : (
+              <ul>
+                {fleetsAtSelected.map((f) => {
+                  const owner = players.find((p) => p.id === f.ownerId);
+                  const counts: Record<UnitType, number> = {
+                    fighter: 0,
+                    destroyer: 0,
+                    cruiser: 0,
+                    battleship: 0,
+                    carrier: 0,
+                    transport: 0
+                  };
+                  f.units.forEach((u) => {
+                    counts[u.type] = (counts[u.type] || 0) + 1;
+                  });
+
+                  return (
+                    <li key={f.id}>
+                      <strong>{owner?.displayName || "Unknown"}</strong> fleet{" "}
+                      ({f.id}):{" "}
+                      {unitTypeList
+                        .filter((t) => counts[t] > 0)
+                        .map((t) => `${counts[t]} ${UNIT_DEFS[t].name}`)
+                        .join(", ") || "no ships"}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {me && isMyTurn && myFleetsAtSelected.length > 0 && (
+              <p style={{ fontSize: "0.9em", color: "#0a0" }}>
+                Tip: Click a connected system on the map to move one of your
+                fleets from here.
+              </p>
+            )}
+            {hasCombat && (
+              <div style={{ marginTop: "0.5rem" }}>
+                <button onClick={handleResolveCombat} disabled={!gameStarted}>
+                  Resolve Combat in this System
+                </button>
+              </div>
+            )}
           </>
         )}
       </section>
@@ -226,10 +414,16 @@ const App: React.FC = () => {
         style={{
           marginBottom: "1rem",
           padding: "0.5rem",
-          border: "1px solid #ccc"
+          border: '1px solid #ccc'
         }}
       >
-        <GalaxyMap systems={systems} players={players} />
+        <GalaxyMap
+          systems={systems}
+          players={players}
+          selectedSystemId={selectedSystemId}
+          allowedDestSystemIds={allowedDestSystemIds}
+          onSystemClick={handleSystemClick}
+        />
       </section>
 
       <section
@@ -293,8 +487,26 @@ const App: React.FC = () => {
         )}
       </section>
 
-      <section>
+            <section>
         <h2>Game State (debug)</h2>
+
+        {gameState?.lastCombatLog && gameState.lastCombatLog.length > 0 && (
+          <div
+            style={{
+              background: "#222",
+              color: "#fff",
+              padding: "0.5rem",
+              marginBottom: "0.5rem",
+              fontSize: "0.9em"
+            }}
+          >
+            <strong>Last Combat Log:</strong>
+            <pre style={{ margin: 0 }}>
+              {gameState.lastCombatLog.join("\n")}
+            </pre>
+          </div>
+        )}
+
         <pre
           style={{
             background: "#111",
@@ -307,6 +519,7 @@ const App: React.FC = () => {
           {gameState ? JSON.stringify(gameState, null, 2) : "No game state yet"}
         </pre>
       </section>
+
     </div>
   );
 };

@@ -44,3 +44,15 @@ export function purchaseUnits(
 ) {
   socket.emit("purchaseUnits", { playerName, unitType, count });
 }
+
+export function moveFleet(
+  playerName: string,
+  fromSystemId: string,
+  toSystemId: string
+) {
+  socket.emit("moveFleet", { playerName, fromSystemId, toSystemId });
+}
+
+export function resolveCombat(systemId: string) {
+  socket.emit("resolveCombat", systemId);
+}

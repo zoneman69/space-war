@@ -4,6 +4,9 @@ import { StarSystem, PlayerState } from "@space-war/shared";
 interface GalaxyMapProps {
   systems: StarSystem[];
   players: PlayerState[];
+  selectedSystemId?: string | null;
+  allowedDestSystemIds?: string[];
+  onSystemClick?: (systemId: string) => void;
 }
 
 const SYSTEM_LAYOUT: Record<string, { x: number; y: number }> = {
@@ -13,42 +16,43 @@ const SYSTEM_LAYOUT: Record<string, { x: number; y: number }> = {
   "sys-4": { x: 500, y: 220 }  // Sirius
 };
 
-// Simple color palette for players
 const PLAYER_COLORS = [
-  "#ff5555", // red
-  "#55aa55", // green
-  "#5555ff", // blue
-  "#ffaa00", // orange
-  "#aa55ff"  // purple
+  "#ff5555",
+  "#55aa55",
+  "#5555ff",
+  "#ffaa00",
+  "#aa55ff"
 ];
 
 function getPlayerColor(player: PlayerState | undefined, players: PlayerState[]): string {
-  if (!player) return "#888888"; // neutral
+  if (!player) return "#888888";
   const index = players.findIndex((p) => p.id === player.id);
   if (index === -1) return "#888888";
   return PLAYER_COLORS[index % PLAYER_COLORS.length];
 }
 
-const GalaxyMap: React.FC<GalaxyMapProps> = ({ systems, players }) => {
+const GalaxyMap: React.FC<GalaxyMapProps> = ({
+  systems,
+  players,
+  selectedSystemId,
+  allowedDestSystemIds,
+  onSystemClick
+}) => {
   if (systems.length === 0) {
     return <p>No systems to display.</p>;
   }
 
-  // Build quick lookup by id
   const systemById: Record<string, StarSystem> = {};
   systems.forEach((s) => {
     systemById[s.id] = s;
   });
 
-  // Helper to get coords, fallback to some default if not defined
   const getCoords = (id: string) => {
     const layout = SYSTEM_LAYOUT[id];
     if (layout) return layout;
-    // fallback to center-ish
     return { x: 400, y: 200 };
   };
 
-  // Build connection lines (avoid duplicates by only drawing when from.id < to.id)
   const connections: { fromId: string; toId: string }[] = [];
   systems.forEach((s) => {
     s.connectedSystems.forEach((neighborId) => {
@@ -58,6 +62,8 @@ const GalaxyMap: React.FC<GalaxyMapProps> = ({ systems, players }) => {
       }
     });
   });
+
+  const allowedDestSet = new Set(allowedDestSystemIds || []);
 
   return (
     <div style={{ marginBottom: "1rem" }}>
@@ -71,7 +77,6 @@ const GalaxyMap: React.FC<GalaxyMapProps> = ({ systems, players }) => {
           background: "#02030a"
         }}
       >
-        {/* Draw connections first */}
         {connections.map((c, idx) => {
           const from = getCoords(c.fromId);
           const to = getCoords(c.toId);
@@ -88,16 +93,30 @@ const GalaxyMap: React.FC<GalaxyMapProps> = ({ systems, players }) => {
           );
         })}
 
-        {/* Draw systems */}
         {systems.map((s) => {
           const { x, y } = getCoords(s.id);
           const owner = players.find((p) => p.id === s.ownerId);
           const color = getPlayerColor(owner, players);
           const isHome = owner?.homeSystems.includes(s.id);
+          const isSelected = selectedSystemId === s.id;
+          const isAllowedDest = allowedDestSet.has(s.id);
+
+          const handleClick = () => {
+            if (onSystemClick) {
+              onSystemClick(s.id);
+            }
+          };
+
+          const strokeColor = isSelected
+            ? "#ffff00"
+            : isAllowedDest
+            ? "#00ffff"
+            : "#ffffff";
+
+          const strokeWidth = isSelected || isAllowedDest ? 3 : isHome ? 3 : 1;
 
           return (
-            <g key={s.id}>
-              {/* glow-ish effect if home system */}
+            <g key={s.id} onClick={handleClick} style={{ cursor: "pointer" }}>
               {isHome && (
                 <circle
                   cx={x}
@@ -112,8 +131,8 @@ const GalaxyMap: React.FC<GalaxyMapProps> = ({ systems, players }) => {
                 cy={y}
                 r={10}
                 fill={color}
-                stroke="#ffffff"
-                strokeWidth={isHome ? 3 : 1}
+                stroke={strokeColor}
+                strokeWidth={strokeWidth}
               />
               <text
                 x={x + 12}
@@ -128,7 +147,6 @@ const GalaxyMap: React.FC<GalaxyMapProps> = ({ systems, players }) => {
         })}
       </svg>
 
-      {/* Simple legend */}
       <div style={{ marginTop: "0.5rem", fontSize: "0.9em" }}>
         <strong>Legend:</strong>
         <ul style={{ listStyle: "none", paddingLeft: 0 }}>
@@ -146,7 +164,11 @@ const GalaxyMap: React.FC<GalaxyMapProps> = ({ systems, players }) => {
               <span>{p.displayName}</span>
             </li>
           ))}
-          {players.length === 0 && <li><span style={{ color: "#999" }}>No players yet.</span></li>}
+          {players.length === 0 && (
+            <li>
+              <span style={{ color: "#999" }}>No players yet.</span>
+            </li>
+          )}
         </ul>
       </div>
     </div>
