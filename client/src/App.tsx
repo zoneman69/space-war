@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { GameState, PlayerState, StarSystem } from "@space-war/shared";
 import { initSocket, joinGame, startGame, endTurn } from "./api/socket";
+import GalaxyMap from "./components/GalaxyMap";
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -45,6 +46,11 @@ const App: React.FC = () => {
   return (
     <div style={{ fontFamily: "sans-serif", padding: "1rem", maxWidth: "900px" }}>
       <h1>Space War</h1>
+
+      {/* Galaxy map */}
+      <section style={{ marginBottom: "1rem", padding: "0.5rem", border: "1px solid #ccc" }}>
+        <GalaxyMap systems={systems} players={players} />
+      </section>
 
       <section style={{ marginBottom: "1rem", padding: "0.5rem", border: "1px solid #ccc" }}>
         <h2>Lobby / Game Controls</h2>
