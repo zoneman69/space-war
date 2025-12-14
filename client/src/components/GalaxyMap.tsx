@@ -1,8 +1,9 @@
 import React from "react";
-import { StarSystem, PlayerState } from "@space-war/shared";
+import { Fleet, PlayerState, StarSystem } from "@space-war/shared";
 
 interface GalaxyMapProps {
   systems: StarSystem[];
+  fleets: Fleet[];
   players: PlayerState[];
   selectedSystemId?: string | null;
   allowedDestSystemIds?: string[];
@@ -41,6 +42,7 @@ function getPlayerColor(player: PlayerState | undefined, players: PlayerState[])
 
 const GalaxyMap: React.FC<GalaxyMapProps> = ({
   systems,
+  fleets,
   players,
   selectedSystemId,
   allowedDestSystemIds,
@@ -72,6 +74,21 @@ const GalaxyMap: React.FC<GalaxyMapProps> = ({
   });
 
   const allowedDestSet = new Set(allowedDestSystemIds || []);
+
+  const groupedFleetsBySystem: Record<string, { ownerId: string | null; count: number }[]> = {};
+  systems.forEach((s) => {
+    const fleetsHere = fleets.filter((f) => f.locationSystemId === s.id);
+
+    const counts: Record<string, number> = {};
+    fleetsHere.forEach((f) => {
+      const key = f.ownerId || "neutral";
+      counts[key] = (counts[key] || 0) + f.units.length;
+    });
+
+    groupedFleetsBySystem[s.id] = Object.entries(counts).map(
+      ([ownerId, count]) => ({ ownerId: ownerId === "neutral" ? null : ownerId, count })
+    );
+  });
 
   return (
     <div style={{ marginBottom: "1rem" }}>
@@ -150,6 +167,38 @@ const GalaxyMap: React.FC<GalaxyMapProps> = ({
               >
                 {s.name}
               </text>
+
+              {/* Fleet markers */}
+              <g transform={`translate(${x - 20}, ${y + 16})`}>
+                {groupedFleetsBySystem[s.id]?.map((group, idx) => {
+                  const fleetOwner = players.find((p) => p.id === group.ownerId);
+                  const badgeColor = getPlayerColor(fleetOwner, players);
+                  const verticalOffset = idx * 18;
+                  return (
+                    <g key={`${s.id}-${group.ownerId ?? "none"}`} transform={`translate(0, ${verticalOffset})`}>
+                      <rect
+                        x={0}
+                        y={0}
+                        width={34}
+                        height={16}
+                        rx={4}
+                        fill={badgeColor}
+                        opacity={0.8}
+                        stroke="#0a0a0a"
+                      />
+                      <text
+                        x={17}
+                        y={11}
+                        fill="#0a0a0a"
+                        fontSize="10"
+                        textAnchor="middle"
+                      >
+                        {group.count}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
             </g>
           );
         })}

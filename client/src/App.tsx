@@ -3,6 +3,7 @@ import {
   GameState,
   PlayerState,
   StarSystem,
+  Unit,
   UnitType,
   UNIT_DEFS,
   Fleet
@@ -39,6 +40,9 @@ const App: React.FC = () => {
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
   const [selectedFactorySystemId, setSelectedFactorySystemId] =
     useState<string | null>(null);
+  const [factoryBuildSystemId, setFactoryBuildSystemId] =
+    useState<string | null>(null);
+  const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
 
   useEffect(() => {
     initSocket((state) => setGameState(state));
@@ -89,7 +93,7 @@ const App: React.FC = () => {
     isMyTurn &&
     gameStarted &&
     phase === "movement" &&
-    myFleetsAtSelected.some((f) => f.units.length > 0)
+    getMyMovableUnits(selectedSystem.id).length > 0
   ) {
     allowedDestSystemIds = selectedSystem.connectedSystems;
   }
@@ -98,12 +102,35 @@ const App: React.FC = () => {
     fleetsAtSelected.length > 0 &&
     new Set(fleetsAtSelected.map((f) => f.ownerId)).size > 1;
 
+  const ownedSystems = me
+    ? systems.filter((s) => s.ownerId === me.id)
+    : [];
+
+  const ownedSystemsWithoutFactory = ownedSystems.filter((s) => !s.hasShipyard);
+
   const myFactorySystems: StarSystem[] =
     me && systems.length > 0
       ? systems.filter(
           (s) => s.ownerId === me.id && s.hasShipyard
         )
       : [];
+
+  const getMyMovableUnits = (systemId: string): Unit[] => {
+    if (!me) return [];
+    return fleets
+      .filter(
+        (f) =>
+          f.ownerId === me.id &&
+          f.locationSystemId === systemId &&
+          f.units.length > 0
+      )
+      .flatMap((f) => f.units)
+      .filter((u) => u.movementRemaining > 0);
+  };
+
+  const myMovableUnitsAtSelected = selectedSystem
+    ? getMyMovableUnits(selectedSystem.id)
+    : [];
 
   useEffect(() => {
     if (!me || myFactorySystems.length === 0) {
@@ -117,6 +144,45 @@ const App: React.FC = () => {
       setSelectedFactorySystemId(myFactorySystems[0].id);
     }
   }, [me, myFactorySystems.map((s) => s.id).join(","), selectedFactorySystemId]);
+
+  useEffect(() => {
+    if (!me || ownedSystemsWithoutFactory.length === 0) {
+      setFactoryBuildSystemId(null);
+      return;
+    }
+    if (
+      !factoryBuildSystemId ||
+      !ownedSystemsWithoutFactory.some((s) => s.id === factoryBuildSystemId)
+    ) {
+      setFactoryBuildSystemId(ownedSystemsWithoutFactory[0].id);
+    }
+  }, [
+    me,
+    ownedSystemsWithoutFactory.map((s) => s.id).join(","),
+    factoryBuildSystemId
+  ]);
+
+  useEffect(() => {
+    if (
+      !selectedSystemId ||
+      !me ||
+      !isMyTurn ||
+      phase !== "movement" ||
+      !gameStarted
+    ) {
+      setSelectedUnitIds([]);
+      return;
+    }
+    const movable = getMyMovableUnits(selectedSystemId);
+    setSelectedUnitIds(movable.map((u) => u.id));
+  }, [
+    selectedSystemId,
+    me?.id,
+    fleets.map((f) => `${f.id}:${f.units.length}`).join(","),
+    isMyTurn,
+    phase,
+    gameStarted
+  ]);
 
   const handleJoin = () => {
     if (name.trim()) {
@@ -149,33 +215,32 @@ const App: React.FC = () => {
     );
   };
 
-    const handleSystemClick = (systemId: string) => {
-    if (!gameState) {
-      setSelectedSystemId(systemId);
-      return;
-    }
-
+  const handleSystemClick = (systemId: string) => {
     const clickedSystem = systems.find((s) => s.id === systemId);
     if (!clickedSystem) {
       setSelectedSystemId(null);
+      setSelectedUnitIds([]);
       return;
     }
 
-    // If it's not our movement phase, just select for info
-    if (!me || !gameStarted || !isMyTurn || phase !== "movement") {
+    const canMove =
+      me && gameStarted && isMyTurn && phase === "movement" && !!selectedSystem;
+
+    if (!canMove) {
       setSelectedSystemId(systemId);
+      setSelectedUnitIds([]);
       return;
     }
 
-    // No source selected yet -> select as source
     if (!selectedSystemId) {
       setSelectedSystemId(systemId);
+      setSelectedUnitIds(getMyMovableUnits(systemId).map((u) => u.id));
       return;
     }
 
-    // Clicking same system again clears selection
     if (selectedSystemId === systemId) {
       setSelectedSystemId(null);
+      setSelectedUnitIds([]);
       return;
     }
 
@@ -184,127 +249,31 @@ const App: React.FC = () => {
 
     if (!from || !to) {
       setSelectedSystemId(systemId);
-      return;
-    }
-
-    // All our fleets at the source
-    const sourceFleets = fleets.filter(
-      (f) =>
-        f.ownerId === me.id &&
-        f.locationSystemId === from.id &&
-        f.units.length > 0
-    );
-
-    if (sourceFleets.length === 0) {
-      setSelectedSystemId(systemId);
+      setSelectedUnitIds(getMyMovableUnits(systemId).map((u) => u.id));
       return;
     }
 
     const isNeighbor = from.connectedSystems.includes(to.id);
     if (!isNeighbor) {
       setSelectedSystemId(systemId);
+      setSelectedUnitIds(getMyMovableUnits(systemId).map((u) => u.id));
       return;
     }
 
-    // Movable units = those with movementRemaining > 0
-    const allUnits = sourceFleets.flatMap((f) => f.units);
-    const movableUnits = allUnits.filter(
-      (u: any) =>
-        u.movementRemaining === undefined || u.movementRemaining > 0
-    );
-
-    if (movableUnits.length === 0) {
-      window.alert("No units here have movement remaining this turn.");
-      setSelectedSystemId(null);
-      return;
-    }
-
-    // Build summary by type
-    const countsByType: Record<UnitType, number> = {
-      fighter: 0,
-      destroyer: 0,
-      cruiser: 0,
-      battleship: 0,
-      carrier: 0,
-      transport: 0
-    };
-    movableUnits.forEach((u) => {
-      countsByType[u.type] = (countsByType[u.type] || 0) + 1;
-    });
-
-    const summaryLines = unitTypeList
-      .filter((t) => countsByType[t] > 0)
-      .map((t) => `${UNIT_DEFS[t].name}: ${countsByType[t]}`);
-
-    const promptText =
-      `Movable units at ${from.name}:\n` +
-      (summaryLines.length > 0 ? summaryLines.join("\n") : "None") +
-      `\n\nEnter units to move like "fighter:2,destroyer:1" or "all":`;
-
-    const answer = window.prompt(promptText, "all");
-    if (answer === null) {
-      // Cancel move
-      setSelectedSystemId(null);
-      return;
-    }
-
-    let unitIdsToMove: string[] = [];
-    const trimmed = answer.trim().toLowerCase();
-
-    if (trimmed === "all" || trimmed === "") {
-      unitIdsToMove = movableUnits.map((u) => u.id);
-    } else {
-      const requestedCounts: Partial<Record<UnitType, number>> = {};
-      const parts = trimmed.split(",");
-      for (const part of parts) {
-        const [rawType, rawCount] = part.split(":").map((s) => s.trim());
-        if (!rawType || !rawCount) continue;
-        const count = parseInt(rawCount, 10);
-        if (!Number.isFinite(count) || count <= 0) continue;
-
-        // Allow "fighter" OR "Fighter"
-        const matchedType =
-          (unitTypeList as UnitType[]).find((t) => t === rawType) ||
-          (unitTypeList as UnitType[]).find(
-            (t) => UNIT_DEFS[t].name.toLowerCase() === rawType
-          );
-
-        if (!matchedType) continue;
-        requestedCounts[matchedType] = count;
-      }
-
-      // Choose that many unit IDs of each type
-      const poolByType: Record<UnitType, string[]> = {
-        fighter: [],
-        destroyer: [],
-        cruiser: [],
-        battleship: [],
-        carrier: [],
-        transport: []
-      };
-      movableUnits.forEach((u) => {
-        poolByType[u.type].push(u.id);
-      });
-
-      for (const t of unitTypeList) {
-        const want = requestedCounts[t];
-        if (!want || want <= 0) continue;
-        const pool = poolByType[t];
-        const chosen = pool.slice(0, want);
-        unitIdsToMove.push(...chosen);
-      }
-    }
-
-    unitIdsToMove = Array.from(new Set(unitIdsToMove));
+    const movableUnits = getMyMovableUnits(from.id);
+    const unitIdsToMove = movableUnits
+      .filter((u) => selectedUnitIds.includes(u.id))
+      .map((u) => u.id);
 
     if (unitIdsToMove.length === 0) {
-      window.alert("No valid units selected to move.");
-      setSelectedSystemId(null);
+      setSelectedSystemId(systemId);
+      setSelectedUnitIds(getMyMovableUnits(systemId).map((u) => u.id));
       return;
     }
 
     moveFleet(me.displayName, from.id, to.id, unitIdsToMove);
     setSelectedSystemId(null);
+    setSelectedUnitIds([]);
   };
 
 
@@ -314,10 +283,10 @@ const App: React.FC = () => {
     resolveCombat(selectedSystem.id);
   };
 
-  const handleBuildFactoryHere = () => {
-    if (!me || !selectedSystem) return;
+  const handleBuildFactory = () => {
+    if (!me || !factoryBuildSystemId) return;
     if (phase !== "purchase") return;
-    buildFactory(me.displayName, selectedSystem.id);
+    buildFactory(me.displayName, factoryBuildSystemId);
   };
 
   const selectedUnitDef = UNIT_DEFS[selectedUnitType];
@@ -351,422 +320,493 @@ const App: React.FC = () => {
     }
   }
 
+  const selectedSystemOwner = selectedSystem
+    ? players.find((p) => p.id === selectedSystem.ownerId)
+    : null;
+
+  const systemUnitsByPlayer: { player: PlayerState | undefined; units: Unit[] }[] =
+    selectedSystem
+      ? Array.from(
+          fleetsAtSelected.reduce((acc, fleet) => {
+            const existing = acc.get(fleet.ownerId) || [];
+            acc.set(fleet.ownerId, existing.concat(fleet.units));
+            return acc;
+          }, new Map<string, Unit[]>())
+        ).map(([playerId, units]) => ({
+          player: players.find((p) => p.id === playerId),
+          units
+        }))
+      : [];
+
+  const selectedUnitsSet = new Set(selectedUnitIds);
+
+  const phaseHighlight = {
+    purchase: "#1f7a8c",
+    movement: "#8c6df0",
+    combat: "#d96c75",
+    deploy: "#5aa469"
+  }[phase];
+
   return (
-    <div style={{ fontFamily: "sans-serif", padding: "1rem", maxWidth: "900px" }}>
-      {winner && (
-        <section
+    <div
+      style={{
+        fontFamily: "Inter, system-ui, sans-serif",
+        background: "#05080f",
+        color: "#e8ecf0",
+        minHeight: "100vh"
+      }}
+    >
+      <header
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 5,
+          background: "#0b1220",
+          borderBottom: "1px solid #1f2a3d",
+          padding: "1rem"
+        }}
+      >
+        {winner && (
+          <div
+            style={{
+              padding: "0.75rem 1rem",
+              marginBottom: "0.5rem",
+              borderRadius: "8px",
+              border: "1px solid #27c24c",
+              background: "rgba(39, 194, 76, 0.1)",
+              color: "#c9ffd7"
+            }}
+          >
+            <strong>{winner.displayName}</strong> has conquered the galaxy!
+          </div>
+        )}
+        <div
           style={{
-            padding: "1rem",
-            background: "#222",
-            color: "#0f0",
-            marginBottom: "1rem",
-            border: "2px solid #0f0"
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "1rem",
+            flexWrap: "wrap"
           }}
         >
-          <h1>GAME OVER</h1>
-          <p>
-            <strong>{winner.displayName}</strong> wins the game!
-          </p>
-        </section>
-      )}
-      <h1>Space War</h1>
+          <div>
+            <h1 style={{ margin: 0, letterSpacing: "0.03em" }}>Space War</h1>
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+              <span>
+                Round <strong>{gameState?.round ?? 1}</strong>
+              </span>
+              <span>
+                Phase
+                <span
+                  style={{
+                    marginLeft: "0.35rem",
+                    padding: "0.15rem 0.5rem",
+                    borderRadius: "999px",
+                    background: phaseHighlight
+                  }}
+                >
+                  {phase.toUpperCase()}
+                </span>
+              </span>
+              {currentPlayer && (
+                <span>
+                  Current: <strong>{currentPlayer.displayName}</strong>
+                  {isMyTurn && " (you)"}
+                </span>
+              )}
+              {me && (
+                <span>
+                  Your credits: <strong>{me.resources}</strong>
+                </span>
+              )}
+            </div>
+            <p style={{ margin: "0.3rem 0 0", color: "#9fb3c8", fontSize: "0.95rem" }}>
+              Turn sequence: Income → Purchase → Movement → Combat → Deploy
+            </p>
+            <p style={{ margin: 0, color: "#cdd9ed", fontSize: "0.95rem" }}>
+              {phaseInstruction}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <input
+              placeholder="Enter your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={{
+                background: "#0f172a",
+                border: "1px solid #1f2a3d",
+                color: "#e8ecf0",
+                padding: "0.4rem 0.6rem",
+                borderRadius: "6px"
+              }}
+            />
+            <button onClick={handleJoin} style={{ padding: "0.5rem 0.8rem" }}>
+              Join
+            </button>
+            <button
+              onClick={handleStartGame}
+              disabled={players.length === 0 || gameStarted}
+              style={{ padding: "0.5rem 0.8rem" }}
+            >
+              Start Game
+            </button>
+            <button
+              onClick={handleEndTurn}
+              disabled={!gameStarted || !me || !isMyTurn || !!winner}
+              style={{ padding: "0.5rem 0.8rem" }}
+            >
+              Next Step
+            </button>
+          </div>
+        </div>
+      </header>
 
-      {/* Turn/phase summary */}
-      <section
+      <main
         style={{
-          marginBottom: "1rem",
-          padding: "0.5rem",
-          border: "1px solid #ccc"
+          padding: "1rem",
+          display: "grid",
+          gridTemplateColumns: "2fr 1fr",
+          gap: "1rem",
+          alignItems: "start"
         }}
       >
-        <h2>Turn & Phase</h2>
-        <p>
-          <strong>Round:</strong> {gameState?.round ?? 1}{" "}
-          | <strong>Phase:</strong> {phase.toUpperCase()}{" "}
-          {currentPlayer && (
-            <>
-              | <strong>Current Player:</strong> {currentPlayer.displayName}
-              {isMyTurn && " (YOU)"}
-            </>
-          )}
-        </p>
-        <p style={{ fontSize: "0.9em", color: "#555" }}>
-          Turn sequence: 1) Income (automatic at start of your turn),
-          2) Purchase, 3) Movement, 4) Combat, 5) Deploy (place new units).
-        </p>
-        <p style={{ fontSize: "0.9em" }}>{phaseInstruction}</p>
-      </section>
-
-      {/* Lobby / control */}
-      <section
-        style={{
-          marginBottom: "1rem",
-          padding: "0.5rem",
-          border: "1px solid #ccc"
-        }}
-      >
-        <h2>Lobby / Game Controls</h2>
-        <div style={{ marginBottom: "0.5rem" }}>
-          <input
-            placeholder="Enter your name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+        <section
+          style={{
+            background: "#0b1220",
+            border: "1px solid #1f2a3d",
+            borderRadius: "10px",
+            padding: "1rem",
+            boxShadow: "0 8px 16px rgba(0,0,0,0.35)"
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <h2 style={{ marginTop: 0 }}>Galaxy Map</h2>
+            {phase === "movement" && isMyTurn && selectedSystem && (
+              <span style={{ color: "#9fb3c8" }}>
+                Select units below, then click a connected destination.
+              </span>
+            )}
+          </div>
+          <GalaxyMap
+            systems={systems}
+            fleets={fleets}
+            players={players}
+            selectedSystemId={selectedSystemId}
+            allowedDestSystemIds={allowedDestSystemIds}
+            onSystemClick={handleSystemClick}
           />
-          <button onClick={handleJoin} style={{ marginLeft: "0.5rem" }}>
-            Join Game
-          </button>
-        </div>
+        </section>
 
-        <div style={{ marginBottom: "0.5rem" }}>
-          <button
-            onClick={handleStartGame}
-            disabled={players.length === 0 || gameStarted}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <section
+            style={{
+              background: "#0b1220",
+              border: "1px solid #1f2a3d",
+              borderRadius: "10px",
+              padding: "1rem"
+            }}
           >
-            Start Game
-          </button>
-
-          <button
-            onClick={handleEndTurn}
-            style={{ marginLeft: "0.5rem" }}
-            disabled={!gameStarted || !me || !isMyTurn || !!winner}
-          >
-            Next Step
-          </button>
-        </div>
-
-        <div>
-          <h3>Players</h3>
-          {players.length === 0 ? (
-            <p>No players yet. Join the game!</p>
-          ) : (
-            <ul>
-              {players.map((p) => (
-                <li key={p.id}>
-                  <strong>{p.displayName}</strong>{" "}
-                  {p.id === gameState?.currentPlayerId && (
-                    <span>(current turn)</span>
-                  )}
-                  <span style={{ marginLeft: "0.5rem" }}>
-                    | Resources: {p.resources}
-                  </span>
-                  {p.homeSystems.length > 0 && (
-                    <span
-                      style={{
-                        marginLeft: "0.5rem",
-                        fontSize: "0.9em",
-                        color: "#555"
-                      }}
-                    >
-                      Home: {p.homeSystems.join(", ")}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      {/* Purchase ships at factory */}
-      <section
-        style={{
-          marginBottom: "1rem",
-          padding: "0.5rem",
-          border: "1px solid #ccc"
-        }}
-      >
-        <h2>Purchase Ships (Purchase Phase)</h2>
-        {!me && <p>Join the game with your name above to purchase units.</p>}
-        {me && (
-          <>
-            <p>
-              You are <strong>{me.displayName}</strong> with{" "}
-              <strong>{me.resources}</strong> resources.
-            </p>
-
-            {phase !== "purchase" && (
-              <p style={{ fontSize: "0.9em", color: "#555" }}>
-                You can only purchase during the PURCHASE phase.
-              </p>
-            )}
-
-            {myFactorySystems.length === 0 ? (
-              <p style={{ color: "#c00" }}>
-                You have no factories. Build one in a system you own (see
-                Selected System panel) before you can produce units.
-              </p>
-            ) : (
-              <>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "0.5rem",
-                    alignItems: "center",
-                    flexWrap: "wrap"
-                  }}
-                >
-                  <label>
-                    Factory:
-                    <select
-                      value={selectedFactorySystemId ?? ""}
-                      onChange={(e) =>
-                        setSelectedFactorySystemId(e.target.value || null)
-                      }
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      {myFactorySystems.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label>
-                    Unit:
-                    <select
-                      value={selectedUnitType}
-                      onChange={(e) =>
-                        setSelectedUnitType(e.target.value as UnitType)
-                      }
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      {unitTypeList.map((t) => (
-                        <option key={t} value={t}>
-                          {UNIT_DEFS[t].name} (cost {UNIT_DEFS[t].cost})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label>
-                    Qty:
-                    <input
-                      type="number"
-                      min="1"
-                      value={purchaseCount}
-                      onChange={(e) => setPurchaseCount(e.target.value)}
-                      style={{ width: "60px", marginLeft: "0.5rem" }}
-                    />
-                  </label>
-
-                  <button
-                    onClick={handlePurchase}
-                    disabled={
-                      !gameStarted ||
-                      !selectedFactorySystemId ||
-                      !isMyTurn ||
-                      phase !== "purchase"
-                    }
-                  >
-                    Purchase
-                  </button>
-                </div>
-                <p
-                  style={{
-                    fontSize: "0.9em",
-                    color: "#555",
-                    marginTop: "0.25rem"
-                  }}
-                >
-                  Total cost: {totalCost} | Units will be placed during the
-                  DEPLOY phase at this factory.
-                </p>
-              </>
-            )}
-          </>
-        )}
-      </section>
-
-      {/* Selected system info + build factory */}
-      <section
-        style={{
-          marginBottom: "1rem",
-          padding: "0.5rem",
-          border: "1px solid #ccc"
-        }}
-      >
-        <h2>Selected System</h2>
-        {!selectedSystem ? (
-          <p>Click a system on the map to inspect it.</p>
-        ) : (
-          <>
-            <p>
-              <strong>{selectedSystem.name}</strong>
-            </p>
-            <p>
-              Owner:{" "}
-              {(() => {
-                const owner = players.find(
-                  (p) => p.id === selectedSystem.ownerId
-                );
-                return owner ? (
-                  owner.displayName
+            <h3 style={{ marginTop: 0 }}>Phase Actions</h3>
+            {phase === "purchase" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {!me ? (
+                  <p style={{ color: "#9fb3c8" }}>
+                    Join the game to begin purchasing units and factories.
+                  </p>
                 ) : (
-                  <span style={{ color: "#999" }}>Unowned</span>
-                );
-              })()}
-            </p>
-            <p>Resources: {selectedSystem.resourceValue}</p>
-            <p>Factory: {selectedSystem.hasShipyard ? "Yes" : "No"}</p>
+                  <>
+                    <div style={{ color: "#cdd9ed" }}>
+                      You have <strong>{me.resources}</strong> credits.
+                    </div>
+                    {myFactorySystems.length === 0 ? (
+                      <p style={{ color: "#d96c75", margin: 0 }}>
+                        You have no factories. Build one to start producing ships.
+                      </p>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                        <label>
+                          Produce at
+                          <select
+                            value={selectedFactorySystemId ?? ""}
+                            onChange={(e) =>
+                              setSelectedFactorySystemId(e.target.value || null)
+                            }
+                            style={{ marginLeft: "0.35rem" }}
+                          >
+                            {myFactorySystems.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                          <label>
+                            Unit
+                            <select
+                              value={selectedUnitType}
+                              onChange={(e) => setSelectedUnitType(e.target.value as UnitType)}
+                              style={{ marginLeft: "0.35rem" }}
+                            >
+                              {unitTypeList.map((ut) => (
+                                <option key={ut} value={ut}>
+                                  {UNIT_DEFS[ut].name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Count
+                            <input
+                              type="number"
+                              min="1"
+                              value={purchaseCount}
+                              onChange={(e) => setPurchaseCount(e.target.value)}
+                              style={{ marginLeft: "0.35rem", width: "80px" }}
+                            />
+                          </label>
+                          <span>Cost: {totalCost}</span>
+                          <button onClick={handlePurchase}>Purchase</button>
+                        </div>
+                        <p style={{ color: "#9fb3c8", margin: 0 }}>
+                          New ships deploy automatically during the DEPLOY phase.
+                        </p>
+                      </div>
+                    )}
 
-            {me &&
-              selectedSystem.ownerId === me.id &&
-              !selectedSystem.hasShipyard && (
-                <div style={{ marginTop: "0.5rem" }}>
-                  <button
-                    onClick={handleBuildFactoryHere}
-                    disabled={
-                      me.resources < FACTORY_COST ||
-                      !isMyTurn ||
-                      phase !== "purchase"
-                    }
-                  >
-                    Build Factory Here (cost {FACTORY_COST})
-                  </button>
-                  {me.resources < FACTORY_COST && (
-                    <span style={{ marginLeft: "0.5rem", color: "#c00" }}>
-                      Not enough resources
-                    </span>
-                  )}
-                  {phase !== "purchase" && (
-                    <span style={{ marginLeft: "0.5rem", color: "#555" }}>
-                      (Only in PURCHASE phase)
-                    </span>
-                  )}
-                </div>
-              )}
-
-            <h3>Fleets here</h3>
-            {fleetsAtSelected.length === 0 ? (
-              <p>No fleets in this system.</p>
-            ) : (
-              <ul>
-                {fleetsAtSelected.map((f) => {
-                  const owner = players.find((p) => p.id === f.ownerId);
-                  const counts: Record<UnitType, number> = {
-                    fighter: 0,
-                    destroyer: 0,
-                    cruiser: 0,
-                    battleship: 0,
-                    carrier: 0,
-                    transport: 0
-                  };
-                  f.units.forEach((u) => {
-                    counts[u.type] = (counts[u.type] || 0) + 1;
-                  });
-
-                  return (
-                    <li key={f.id}>
-                      <strong>{owner?.displayName || "Unknown"}</strong> fleet{" "}
-                      ({f.id}):{" "}
-                      {unitTypeList
-                        .filter((t) => counts[t] > 0)
-                        .map((t) => `${counts[t]} ${UNIT_DEFS[t].name}`)
-                        .join(", ") || "no ships"}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {me &&
-              isMyTurn &&
-              phase === "movement" &&
-              myFleetsAtSelected.length > 0 && (
-                <p style={{ fontSize: "0.9em", color: "#0a0" }}>
-                  Movement phase: Click a connected system on the map to move
-                  one of your fleets from here.
-                </p>
-              )}
-
-            {hasCombat && (
-              <div style={{ marginTop: "0.5rem" }}>
-                <button
-                  onClick={handleResolveCombat}
-                  disabled={!gameStarted || !isMyTurn || phase !== "combat"}
-                >
-                  Resolve Combat in this System
-                </button>
-                {phase !== "combat" && (
-                  <span style={{ marginLeft: "0.5rem", color: "#555" }}>
-                    (Only in COMBAT phase)
-                  </span>
+                    <div style={{ borderTop: "1px solid #1f2a3d", paddingTop: "0.5rem" }}>
+                      <h4 style={{ margin: "0 0 0.35rem" }}>Build Factory</h4>
+                      {ownedSystemsWithoutFactory.length === 0 ? (
+                        <p style={{ margin: 0, color: "#9fb3c8" }}>
+                          No eligible systems without a factory.
+                        </p>
+                      ) : (
+                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                          <label>
+                            Location
+                            <select
+                              value={factoryBuildSystemId ?? ""}
+                              onChange={(e) => setFactoryBuildSystemId(e.target.value || null)}
+                              style={{ marginLeft: "0.35rem" }}
+                            >
+                              {ownedSystemsWithoutFactory.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <span>Cost: {FACTORY_COST}</span>
+                          <button onClick={handleBuildFactory}>Build</button>
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             )}
-          </>
-        )}
-      </section>
 
-      {/* Galaxy map */}
+            {phase === "movement" && (
+              <div style={{ color: "#cdd9ed" }}>
+                Select a system on the map, choose which ships to move, then click a connected destination.
+              </div>
+            )}
+
+            {phase === "combat" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <p style={{ margin: 0, color: "#cdd9ed" }}>
+                  Select a contested system and resolve every battle before proceeding.
+                </p>
+                <button
+                  onClick={handleResolveCombat}
+                  disabled={!hasCombat || !isMyTurn}
+                >
+                  Resolve Combat in Selected System
+                </button>
+              </div>
+            )}
+
+            {phase === "deploy" && (
+              <p style={{ margin: 0, color: "#cdd9ed" }}>
+                Newly purchased ships will deploy automatically. End the phase to pass the turn.
+              </p>
+            )}
+          </section>
+
+          <section
+            style={{
+              background: "#0b1220",
+              border: "1px solid #1f2a3d",
+              borderRadius: "10px",
+              padding: "1rem"
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>Selected System</h3>
+            {!selectedSystem ? (
+              <p style={{ color: "#9fb3c8" }}>Click a system on the map to inspect it.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <div>
+                  <strong>{selectedSystem.name}</strong>{" "}
+                  <span style={{ color: "#9fb3c8" }}>
+                    • Resources {selectedSystem.resourceValue} • Factory {" "}
+                    {selectedSystem.hasShipyard ? "Yes" : "No"}
+                  </span>
+                  <div style={{ color: "#cdd9ed" }}>
+                    Owner: {selectedSystemOwner ? selectedSystemOwner.displayName : "Unowned"}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 style={{ margin: "0 0 0.35rem" }}>Fleets here</h4>
+                  {systemUnitsByPlayer.length === 0 ? (
+                    <p style={{ margin: 0, color: "#9fb3c8" }}>No ships present.</p>
+                  ) : (
+                    <ul style={{ margin: 0, paddingLeft: "1rem" }}>
+                      {systemUnitsByPlayer.map((entry) => (
+                        <li key={entry.player?.id ?? "unknown"}>
+                          <strong>{entry.player?.displayName ?? "Unknown"}</strong> — {entry.units.length} units
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {phase === "movement" &&
+                  isMyTurn &&
+                  me &&
+                  myMovableUnitsAtSelected.length > 0 && (
+                    <div style={{ borderTop: "1px solid #1f2a3d", paddingTop: "0.5rem" }}>
+                      <h4 style={{ margin: "0 0 0.35rem" }}>Select ships to move</h4>
+                      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.35rem" }}>
+                        <button
+                          onClick={() =>
+                            setSelectedUnitIds(myMovableUnitsAtSelected.map((u) => u.id))
+                          }
+                        >
+                          Select all
+                        </button>
+                        <button onClick={() => setSelectedUnitIds([])}>Clear</button>
+                        <span style={{ color: "#9fb3c8" }}>
+                          Selected: {selectedUnitIds.length}/{myMovableUnitsAtSelected.length}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          maxHeight: "200px",
+                          overflow: "auto",
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                          gap: "0.35rem"
+                        }}
+                      >
+                        {myMovableUnitsAtSelected.map((unit) => (
+                          <label
+                            key={unit.id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.35rem",
+                              padding: "0.4rem 0.5rem",
+                              borderRadius: "8px",
+                              border: "1px solid #1f2a3d",
+                              background: selectedUnitsSet.has(unit.id) ? "#1f2a3d" : "#0f172a"
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedUnitsSet.has(unit.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedUnitIds((prev) => Array.from(new Set([...prev, unit.id])));
+                                } else {
+                                  setSelectedUnitIds((prev) => prev.filter((id) => id !== unit.id));
+                                }
+                              }}
+                            />
+                            <span>
+                              {UNIT_DEFS[unit.type].name}
+                              <span style={{ color: "#9fb3c8" }}>
+                                {" "}• Move {unit.movementRemaining}
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      <p style={{ color: "#9fb3c8", marginTop: "0.4rem" }}>
+                        After selecting, click a highlighted neighboring system on the map.
+                      </p>
+                    </div>
+                  )}
+
+                {phase === "combat" && hasCombat && (
+                  <p style={{ color: "#d96c75", margin: 0 }}>
+                    Combat pending in this system.
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section
+            style={{
+              background: "#0b1220",
+              border: "1px solid #1f2a3d",
+              borderRadius: "10px",
+              padding: "1rem"
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>Players</h3>
+            {players.length === 0 ? (
+              <p style={{ color: "#9fb3c8" }}>No players yet.</p>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: "1rem" }}>
+                {players.map((p) => (
+                  <li key={p.id} style={{ marginBottom: "0.25rem" }}>
+                    <strong>{p.displayName}</strong>
+                    {p.id === gameState?.currentPlayerId && <span> — taking turn</span>}
+                    <span style={{ color: "#9fb3c8" }}> • Credits {p.resources}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </main>
+
       <section
         style={{
-          marginBottom: "1rem",
-          padding: "0.5rem",
-          border: "1px solid #ccc"
+          margin: "0 1rem 1rem",
+          background: "#0b1220",
+          border: "1px solid #1f2a3d",
+          borderRadius: "10px",
+          padding: "1rem"
         }}
       >
-        <GalaxyMap
-          systems={systems}
-          players={players}
-          selectedSystemId={selectedSystemId}
-          allowedDestSystemIds={allowedDestSystemIds}
-          onSystemClick={handleSystemClick}
-        />
-      </section>
-
-      {/* Systems table */}
-      <section
-        style={{
-          marginBottom: "1rem",
-          padding: "0.5rem",
-          border: "1px solid #ccc"
-        }}
-      >
-        <h2>Systems</h2>
+        <h3 style={{ marginTop: 0 }}>Systems Overview</h3>
         {systems.length === 0 ? (
-          <p>No systems defined.</p>
+          <p style={{ color: "#9fb3c8" }}>No systems defined.</p>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr>
-                <th
-                  style={{ borderBottom: "1px solid #ccc", textAlign: "left" }}
-                >
-                  Name
-                </th>
-                <th
-                  style={{ borderBottom: "1px solid #ccc", textAlign: "left" }}
-                >
-                  Owner
-                </th>
-                <th
-                  style={{ borderBottom: "1px solid #ccc", textAlign: "left" }}
-                >
-                  Resources
-                </th>
-                <th
-                  style={{ borderBottom: "1px solid #ccc", textAlign: "left" }}
-                >
-                  Factory
-                </th>
+              <tr style={{ color: "#9fb3c8" }}>
+                <th style={{ textAlign: "left", paddingBottom: "0.35rem" }}>Name</th>
+                <th style={{ textAlign: "left", paddingBottom: "0.35rem" }}>Owner</th>
+                <th style={{ textAlign: "left", paddingBottom: "0.35rem" }}>Resources</th>
+                <th style={{ textAlign: "left", paddingBottom: "0.35rem" }}>Factory</th>
               </tr>
             </thead>
             <tbody>
               {systems.map((s) => {
                 const owner = players.find((p) => p.id === s.ownerId);
                 return (
-                  <tr key={s.id}>
-                    <td style={{ padding: "0.25rem 0" }}>{s.name}</td>
-                    <td style={{ padding: "0.25rem 0" }}>
-                      {owner ? (
-                        owner.displayName
-                      ) : (
-                        <span style={{ color: "#999" }}>Unowned</span>
-                      )}
+                  <tr key={s.id} style={{ borderTop: "1px solid #1f2a3d" }}>
+                    <td style={{ padding: "0.35rem 0" }}>{s.name}</td>
+                    <td style={{ padding: "0.35rem 0", color: "#cdd9ed" }}>
+                      {owner ? owner.displayName : "Unowned"}
                     </td>
-                    <td style={{ padding: "0.25rem 0" }}>{s.resourceValue}</td>
-                    <td style={{ padding: "0.25rem 0" }}>
+                    <td style={{ padding: "0.35rem 0" }}>{s.resourceValue}</td>
+                    <td style={{ padding: "0.35rem 0" }}>
                       {s.hasShipyard ? "Yes" : "No"}
                     </td>
                   </tr>
@@ -777,18 +817,25 @@ const App: React.FC = () => {
         )}
       </section>
 
-      {/* Debug */}
-      <section>
-        <h2>Game State (debug)</h2>
-
+      <section
+        style={{
+          margin: "0 1rem 2rem",
+          background: "#0b1220",
+          border: "1px solid #1f2a3d",
+          borderRadius: "10px",
+          padding: "1rem"
+        }}
+      >
+        <h3 style={{ marginTop: 0 }}>Game State (debug)</h3>
         {gameState?.lastCombatLog && gameState.lastCombatLog.length > 0 && (
           <div
             style={{
-              background: "#222",
-              color: "#fff",
+              background: "#111827",
+              color: "#e8ecf0",
               padding: "0.5rem",
               marginBottom: "0.5rem",
-              fontSize: "0.9em"
+              fontSize: "0.9em",
+              borderRadius: "6px"
             }}
           >
             <strong>Last Combat Log:</strong>
@@ -800,11 +847,13 @@ const App: React.FC = () => {
 
         <pre
           style={{
-            background: "#111",
-            color: "#0f0",
+            background: "#020617",
+            color: "#c9d3e6",
             padding: "1rem",
             maxHeight: "300px",
-            overflow: "auto"
+            overflow: "auto",
+            borderRadius: "8px",
+            border: "1px solid #1f2a3d"
           }}
         >
           {gameState ? JSON.stringify(gameState, null, 2) : "No game state yet"}
@@ -812,6 +861,7 @@ const App: React.FC = () => {
       </section>
     </div>
   );
+
 };
 
 export default App;
