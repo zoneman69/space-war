@@ -86,6 +86,19 @@ const App: React.FC = () => {
       ? fleetsAtSelected.filter((f) => f.ownerId === me.id)
       : [];
 
+  const getMyMovableUnits = (systemId: string): Unit[] => {
+    if (!me) return [];
+    return fleets
+      .filter(
+        (f) =>
+          f.ownerId === me.id &&
+          f.locationSystemId === systemId &&
+          f.units.length > 0
+      )
+      .flatMap((f) => f.units)
+      .filter((u) => u.movementRemaining > 0);
+  };
+
   let allowedDestSystemIds: string[] = [];
   if (
     selectedSystem &&
@@ -114,19 +127,6 @@ const App: React.FC = () => {
           (s) => s.ownerId === me.id && s.hasShipyard
         )
       : [];
-
-  const getMyMovableUnits = (systemId: string): Unit[] => {
-    if (!me) return [];
-    return fleets
-      .filter(
-        (f) =>
-          f.ownerId === me.id &&
-          f.locationSystemId === systemId &&
-          f.units.length > 0
-      )
-      .flatMap((f) => f.units)
-      .filter((u) => u.movementRemaining > 0);
-  };
 
   const myMovableUnitsAtSelected = selectedSystem
     ? getMyMovableUnits(selectedSystem.id)
