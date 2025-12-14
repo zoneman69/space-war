@@ -19,3 +19,4 @@ shared/dist
 *.swp
 .idea
 .vscode
+v8-compile-cache-0
