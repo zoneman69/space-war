@@ -117,6 +117,27 @@ function startGameIfPossible() {
   );
 }
 
+function distributeIncome() {
+  const players = gameState.players;
+  const systems = gameState.systems;
+
+  console.log("Distributing income for round", gameState.round);
+
+  players.forEach((player) => {
+    // sum resourceValue of systems owned by this player
+    const income = systems
+      .filter((s) => s.ownerId === player.id)
+      .reduce((sum, s) => sum + s.resourceValue, 0);
+
+    player.resources += income;
+
+    console.log(
+      `Player ${player.displayName} gains ${income} resources (total: ${player.resources})`
+    );
+  });
+}
+
+
 // --- Socket.IO events ---
 
 io.on("connection", (socket) => {
@@ -161,7 +182,7 @@ io.on("connection", (socket) => {
     io.emit("gameState", gameState);
   });
 
-  socket.on("endTurn", () => {
+    socket.on("endTurn", () => {
     console.log("Received endTurn request from", socket.id);
 
     const players = gameState.players;
@@ -171,15 +192,14 @@ io.on("connection", (socket) => {
       (p) => p.id === gameState.currentPlayerId
     );
 
-    // If somehow current player isn't set, fallback to first
     const nextIndex =
       currentIndex === -1 ? 0 : (currentIndex + 1) % players.length;
 
-    // New current player
     gameState.currentPlayerId = players[nextIndex].id;
 
-    // If we wrapped around to the first player, increment round
+    // If we wrapped back to first player, distribute income and increment round
     if (nextIndex === 0) {
+      distributeIncome();
       gameState.round += 1;
     }
 
@@ -189,6 +209,7 @@ io.on("connection", (socket) => {
 
     io.emit("gameState", gameState);
   });
+
 
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);

@@ -102,12 +102,21 @@ const App: React.FC = () => {
             <ul>
               {players.map((p) => (
                 <li key={p.id}>
-                  {p.displayName}{" "}
+                  <strong>{p.displayName}</strong>{" "}
                   {p.id === gameState?.currentPlayerId ? (
-                    <strong>(current turn)</strong>
+                    <span>(current turn)</span>
                   ) : null}
+                  <span style={{ marginLeft: "0.5rem" }}>
+                    | Resources: {p.resources}
+                  </span>
                   {p.homeSystems.length > 0 && (
-                    <span style={{ marginLeft: "0.5rem", fontSize: "0.9em", color: "#555" }}>
+                    <span
+                      style={{
+                        marginLeft: "0.5rem",
+                        fontSize: "0.9em",
+                        color: "#555"
+                      }}
+                    >
                       Home: {p.homeSystems.join(", ")}
                     </span>
                   )}
