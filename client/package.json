@@ -1,0 +1,23 @@
+{
+  "name": "@space-war/client",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "socket.io-client": "^4.7.0",
+    "@space-war/shared": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@vitejs/plugin-react-swc": "^3.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  }
+}
