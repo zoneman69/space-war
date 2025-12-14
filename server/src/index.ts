@@ -2,7 +2,15 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
-import { GameState, PlayerState, StarSystem } from "@space-war/shared";
+import {
+  GameState,
+  PlayerState,
+  StarSystem,
+  UnitType,
+  Unit,
+  Fleet,
+  UNIT_DEFS
+} from "@space-war/shared";
 
 const app = express();
 const server = http.createServer(app);
@@ -55,6 +63,8 @@ function createDefaultSystems(): StarSystem[] {
 }
 
 let nextPlayerNum = 1;
+let nextFleetNum = 1;
+let nextUnitNum = 1;
 
 // --- In-memory game state ---
 let gameState: GameState = {
@@ -85,7 +95,6 @@ function startGameIfPossible() {
     return;
   }
 
-  // If game already started (someone owns a system), don't restart
   const alreadyStarted = gameState.systems.some((s) => s.ownerId !== null);
   if (alreadyStarted) {
     console.log("Game already started, ignoring start request");
@@ -94,21 +103,17 @@ function startGameIfPossible() {
 
   console.log("Starting game...");
 
-  // For now, assign home systems in order of players to the first N systems
   const systems = gameState.systems;
   const players = gameState.players;
 
   players.forEach((player, index) => {
-    const system = systems[index % systems.length]; // wrap if more players than systems
+    const system = systems[index % systems.length];
     system.ownerId = player.id;
-
-    // Add as home system
     player.homeSystems = [system.id];
   });
 
-  // Set the first player as the current player
   gameState.currentPlayerId = players[0].id;
-  gameState.phase = "income";
+  gameState.phase = "purchase";
   gameState.round = 1;
 
   console.log(
@@ -124,7 +129,6 @@ function distributeIncome() {
   console.log("Distributing income for round", gameState.round);
 
   players.forEach((player) => {
-    // sum resourceValue of systems owned by this player
     const income = systems
       .filter((s) => s.ownerId === player.id)
       .reduce((sum, s) => sum + s.resourceValue, 0);
@@ -135,22 +139,103 @@ function distributeIncome() {
       `Player ${player.displayName} gains ${income} resources (total: ${player.resources})`
     );
   });
+
+  gameState.phase = "purchase";
 }
 
+function getOrCreateHomeFleetForPlayer(player: PlayerState): Fleet | null {
+  if (player.homeSystems.length === 0) {
+    console.log("Player has no home systems, cannot spawn fleet:", player.displayName);
+    return null;
+  }
+
+  const homeSystemId = player.homeSystems[0];
+
+  // Try to find an existing fleet at home system
+  let fleet = gameState.fleets.find(
+    (f) => f.ownerId === player.id && f.locationSystemId === homeSystemId
+  );
+
+  if (!fleet) {
+    fleet = {
+      id: `fleet-${nextFleetNum++}`,
+      ownerId: player.id,
+      locationSystemId: homeSystemId,
+      units: []
+    };
+    gameState.fleets.push(fleet);
+  }
+
+  return fleet;
+}
+
+interface PurchasePayload {
+  playerName: string;
+  unitType: UnitType;
+  count: number;
+}
+
+function handlePurchase(payload: PurchasePayload) {
+  const { playerName, unitType, count } = payload;
+
+  if (count <= 0 || !Number.isInteger(count)) {
+    console.log("Invalid purchase count:", count);
+    return;
+  }
+
+  const player = gameState.players.find(
+    (p) => p.displayName === playerName
+  );
+  if (!player) {
+    console.log("Purchase failed: player not found", playerName);
+    return;
+  }
+
+  const unitDef = UNIT_DEFS[unitType];
+  if (!unitDef) {
+    console.log("Purchase failed: unknown unit type", unitType);
+    return;
+  }
+
+  const totalCost = unitDef.cost * count;
+  if (player.resources < totalCost) {
+    console.log(
+      `Purchase failed: ${player.displayName} has ${player.resources}, needs ${totalCost}`
+    );
+    return;
+  }
+
+  const fleet = getOrCreateHomeFleetForPlayer(player);
+  if (!fleet) return;
+
+  player.resources -= totalCost;
+
+  for (let i = 0; i < count; i++) {
+    const unit: Unit = {
+      id: `unit-${nextUnitNum++}`,
+      type: unitType
+    };
+    fleet.units.push(unit);
+  }
+
+  console.log(
+    `Player ${player.displayName} bought ${count} ${unitDef.name}(s) for ${totalCost}, remaining ${player.resources}`
+  );
+}
 
 // --- Socket.IO events ---
 
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
-  // send current state on connect
   socket.emit("gameState", gameState);
 
   socket.on("joinGame", (playerName: string) => {
     console.log(`Player joined: ${playerName}`);
 
-    // Check if player with same name already exists
-    let existing = gameState.players.find((p) => p.displayName === playerName);
+    let existing = gameState.players.find(
+      (p) => p.displayName === playerName
+    );
 
     if (!existing) {
       const playerId = `player-${nextPlayerNum++}`;
@@ -158,31 +243,32 @@ io.on("connection", (socket) => {
       const newPlayer: PlayerState = {
         id: playerId,
         displayName: playerName,
-        resources: 10, // starting resources
+        resources: 10,
         homeSystems: []
       };
 
       gameState.players.push(newPlayer);
 
-      // if no current player yet, set this one (will be overwritten on startGame)
       if (!gameState.currentPlayerId) {
         gameState.currentPlayerId = playerId;
       }
 
-      console.log("Current players:", gameState.players.map((p) => p.displayName));
+      console.log(
+        "Current players:",
+        gameState.players.map((p) => p.displayName)
+      );
     }
 
-    // Broadcast updated game state to everyone
     io.emit("gameState", gameState);
   });
 
-    socket.on("startGame", () => {
+  socket.on("startGame", () => {
     console.log("Received startGame request from", socket.id);
     startGameIfPossible();
     io.emit("gameState", gameState);
   });
 
-    socket.on("endTurn", () => {
+  socket.on("endTurn", () => {
     console.log("Received endTurn request from", socket.id);
 
     const players = gameState.players;
@@ -197,7 +283,6 @@ io.on("connection", (socket) => {
 
     gameState.currentPlayerId = players[nextIndex].id;
 
-    // If we wrapped back to first player, distribute income and increment round
     if (nextIndex === 0) {
       distributeIncome();
       gameState.round += 1;
@@ -210,12 +295,16 @@ io.on("connection", (socket) => {
     io.emit("gameState", gameState);
   });
 
+  socket.on("purchaseUnits", (payload: PurchasePayload) => {
+    console.log("Received purchaseUnits:", payload);
+    handlePurchase(payload);
+    io.emit("gameState", gameState);
+  });
 
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
   });
 });
-
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

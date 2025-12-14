@@ -3,7 +3,13 @@ export type SystemID = string;
 export type FleetID = string;
 export type GameID = string;
 
-export type UnitType = "fighter" | "destroyer" | "cruiser" | "battleship" | "carrier" | "transport";
+export type UnitType =
+  | "fighter"
+  | "destroyer"
+  | "cruiser"
+  | "battleship"
+  | "carrier"
+  | "transport";
 
 export interface Unit {
   id: string;
@@ -33,7 +39,12 @@ export interface PlayerState {
   homeSystems: SystemID[];
 }
 
-export type TurnPhase = "income" | "purchase" | "movement" | "combat" | "deploy";
+export type TurnPhase =
+  | "income"
+  | "purchase"
+  | "movement"
+  | "combat"
+  | "deploy";
 
 export interface GameState {
   id: GameID;
@@ -44,3 +55,16 @@ export interface GameState {
   phase: TurnPhase;
   round: number;
 }
+
+// Simple unit definitions with costs
+export const UNIT_DEFS: Record<
+  UnitType,
+  { name: string; cost: number }
+> = {
+  fighter: { name: "Fighter", cost: 6 },
+  destroyer: { name: "Destroyer", cost: 8 },
+  cruiser: { name: "Cruiser", cost: 12 },
+  battleship: { name: "Battleship", cost: 18 },
+  carrier: { name: "Carrier", cost: 14 },
+  transport: { name: "Transport", cost: 7 }
+};

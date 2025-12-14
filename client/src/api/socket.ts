@@ -1,9 +1,8 @@
 import { io, Socket } from "socket.io-client";
-import { GameState } from "@space-war/shared";
+import { GameState, UnitType } from "@space-war/shared";
 
 let socket: Socket;
 
-// Use whatever host the page was loaded from
 const host = window.location.hostname;
 const devUrl = `http://${host}:4000`;
 
@@ -36,4 +35,12 @@ export function startGame() {
 
 export function endTurn() {
   socket.emit("endTurn");
+}
+
+export function purchaseUnits(
+  playerName: string,
+  unitType: UnitType,
+  count: number
+) {
+  socket.emit("purchaseUnits", { playerName, unitType, count });
 }
