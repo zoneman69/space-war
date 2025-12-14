@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { GameState, PlayerState, StarSystem } from "@space-war/shared";
-import { initSocket, joinGame, startGame } from "./api/socket";
+import { initSocket, joinGame, startGame, endTurn } from "./api/socket";
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -13,7 +13,6 @@ const App: React.FC = () => {
   const handleJoin = () => {
     if (name.trim()) {
       joinGame(name.trim());
-      // Don't clear the name so user sees what they joined as
     }
   };
 
@@ -21,20 +20,34 @@ const App: React.FC = () => {
     startGame();
   };
 
+  const handleEndTurn = () => {
+    endTurn();
+  };
+
   const players: PlayerState[] = gameState?.players ?? [];
   const systems: StarSystem[] = gameState?.systems ?? [];
 
-  const currentPlayer = players.find((p) => p.id === gameState?.currentPlayerId) || null;
+  const currentPlayer =
+    players.find((p) => p.id === gameState?.currentPlayerId) || null;
 
   const gameStarted =
     systems.length > 0 && systems.some((s) => s.ownerId !== null);
 
+  // crude “who am I?” based on name
+  const me =
+    name.trim().length > 0
+      ? players.find((p) => p.displayName === name.trim()) || null
+      : null;
+
+  const isMyTurn =
+    !!me && currentPlayer && me.id === currentPlayer.id;
+
   return (
-    <div style={{ fontFamily: "sans-serif", padding: "1rem", maxWidth: "800px" }}>
+    <div style={{ fontFamily: "sans-serif", padding: "1rem", maxWidth: "900px" }}>
       <h1>Space War</h1>
 
       <section style={{ marginBottom: "1rem", padding: "0.5rem", border: "1px solid #ccc" }}>
-        <h2>Lobby</h2>
+        <h2>Lobby / Game Controls</h2>
         <div style={{ marginBottom: "0.5rem" }}>
           <input
             placeholder="Enter your name"
@@ -53,14 +66,24 @@ const App: React.FC = () => {
           >
             Start Game
           </button>
-          {players.length === 0 && (
-            <span style={{ marginLeft: "0.5rem", color: "#999" }}>
-              Need at least 1 player
-            </span>
-          )}
-          {gameStarted && (
-            <span style={{ marginLeft: "0.5rem", color: "green" }}>
-              Game started!
+
+          <button
+            onClick={handleEndTurn}
+            style={{ marginLeft: "0.5rem" }}
+            disabled={!gameStarted}
+          >
+            End Turn
+          </button>
+
+          {gameState && (
+            <span style={{ marginLeft: "1rem", fontWeight: "bold" }}>
+              Round: {gameState.round}{" "}
+              {currentPlayer && (
+                <>
+                  | Current: {currentPlayer.displayName}
+                  {isMyTurn && " (YOU)"}
+                </>
+              )}
             </span>
           )}
         </div>
@@ -110,7 +133,9 @@ const App: React.FC = () => {
                   <tr key={s.id}>
                     <td style={{ padding: "0.25rem 0" }}>{s.name}</td>
                     <td style={{ padding: "0.25rem 0" }}>
-                      {owner ? owner.displayName : <span style={{ color: "#999" }}>Unowned</span>}
+                      {owner ? owner.displayName : (
+                        <span style={{ color: "#999" }}>Unowned</span>
+                      )}
                     </td>
                     <td style={{ padding: "0.25rem 0" }}>{s.resourceValue}</td>
                     <td style={{ padding: "0.25rem 0" }}>{s.hasShipyard ? "Yes" : "No"}</td>

@@ -3,8 +3,8 @@ import { GameState } from "@space-war/shared";
 
 let socket: Socket;
 
-// Use whatever host the page was loaded from (works from other machines)
-const host = window.location.hostname; // e.g. 192.168.1.251
+// Use whatever host the page was loaded from
+const host = window.location.hostname;
 const devUrl = `http://${host}:4000`;
 
 socket = io(devUrl);
@@ -32,4 +32,8 @@ export function joinGame(playerName: string) {
 
 export function startGame() {
   socket.emit("startGame");
+}
+
+export function endTurn() {
+  socket.emit("endTurn");
 }

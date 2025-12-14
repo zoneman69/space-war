@@ -155,9 +155,38 @@ io.on("connection", (socket) => {
     io.emit("gameState", gameState);
   });
 
-  socket.on("startGame", () => {
+    socket.on("startGame", () => {
     console.log("Received startGame request from", socket.id);
     startGameIfPossible();
+    io.emit("gameState", gameState);
+  });
+
+  socket.on("endTurn", () => {
+    console.log("Received endTurn request from", socket.id);
+
+    const players = gameState.players;
+    if (players.length === 0) return;
+
+    const currentIndex = players.findIndex(
+      (p) => p.id === gameState.currentPlayerId
+    );
+
+    // If somehow current player isn't set, fallback to first
+    const nextIndex =
+      currentIndex === -1 ? 0 : (currentIndex + 1) % players.length;
+
+    // New current player
+    gameState.currentPlayerId = players[nextIndex].id;
+
+    // If we wrapped around to the first player, increment round
+    if (nextIndex === 0) {
+      gameState.round += 1;
+    }
+
+    console.log(
+      `Turn advanced: now ${players[nextIndex].displayName}, round ${gameState.round}`
+    );
+
     io.emit("gameState", gameState);
   });
 
@@ -165,6 +194,7 @@ io.on("connection", (socket) => {
     console.log("Client disconnected:", socket.id);
   });
 });
+
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
