@@ -2,9 +2,7 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
-import path from "path";
-import { fileURLToPath } from "url"; // only needed if you switch to ES modules
-import { GameState } from "@space-war/shared/types";
+import { GameState, PlayerState, StarSystem } from "@space-war/shared";
 
 const app = express();
 const server = http.createServer(app);
@@ -17,56 +15,110 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
-// --- Simple in-memory game state for now ---
-let gameState: GameState | null = null;
+// --- Simple helpers ---
 
-// TEMP basic init route
-app.post("/api/init", (req, res) => {
-  gameState = {
-    id: "game-1",
-    players: [],
-    systems: [],
-    fleets: [],
-    currentPlayerId: "",
-    phase: "income",
-    round: 1
-  };
-  res.json({ ok: true, gameState });
-});
+function createDefaultSystems(): StarSystem[] {
+  return [
+    {
+      id: "sys-1",
+      name: "Sol",
+      ownerId: null,
+      resourceValue: 5,
+      connectedSystems: ["sys-2", "sys-3"],
+      hasShipyard: true
+    },
+    {
+      id: "sys-2",
+      name: "Alpha Centauri",
+      ownerId: null,
+      resourceValue: 3,
+      connectedSystems: ["sys-1", "sys-4"],
+      hasShipyard: false
+    },
+    {
+      id: "sys-3",
+      name: "Vega",
+      ownerId: null,
+      resourceValue: 2,
+      connectedSystems: ["sys-1"],
+      hasShipyard: false
+    },
+    {
+      id: "sys-4",
+      name: "Sirius",
+      ownerId: null,
+      resourceValue: 4,
+      connectedSystems: ["sys-2"],
+      hasShipyard: true
+    }
+  ];
+}
 
-// Simple health check
+let nextPlayerNum = 1;
+
+// --- In-memory game state ---
+let gameState: GameState = {
+  id: "game-1",
+  players: [],
+  systems: createDefaultSystems(),
+  fleets: [],
+  currentPlayerId: "",
+  phase: "income",
+  round: 1
+};
+
+// --- REST routes ---
+
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
+app.get("/api/state", (_req, res) => {
+  res.json(gameState);
+});
+
 // --- Socket.IO events ---
+
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
   // send current state on connect
-  if (gameState) {
-    socket.emit("gameState", gameState);
-  }
+  socket.emit("gameState", gameState);
 
   socket.on("joinGame", (playerName: string) => {
     console.log(`Player joined: ${playerName}`);
-    // TODO: Add player to gameState
+
+    // Check if player with same name already exists
+    let existing = gameState.players.find((p) => p.displayName === playerName);
+
+    if (!existing) {
+      const playerId = `player-${nextPlayerNum++}`;
+
+      const newPlayer: PlayerState = {
+        id: playerId,
+        displayName: playerName,
+        resources: 10, // starting resources
+        homeSystems: [] // we’ll assign later when we do setup logic
+      };
+
+      gameState.players.push(newPlayer);
+
+      // if no current player yet, set this one
+      if (!gameState.currentPlayerId) {
+        gameState.currentPlayerId = playerId;
+      }
+
+      console.log("Current players:", gameState.players.map(p => p.displayName));
+    }
+
+    // Broadcast updated game state to everyone
+    io.emit("gameState", gameState);
   });
 
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
   });
 });
-
-// In production, serve the client build
-// Later you’ll run `pnpm --filter client build` and point this at `client/dist`
-/*
-const clientBuildPath = path.join(__dirname, "..", "..", "client", "dist");
-app.use(express.static(clientBuildPath));
-app.get("*", (_req, res) => {
-  res.sendFile(path.join(clientBuildPath, "index.html"));
-});
-*/
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

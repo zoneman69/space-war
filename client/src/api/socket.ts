@@ -1,7 +1,13 @@
 import { io, Socket } from "socket.io-client";
-import { GameState } from "@space-war/shared/types";
+import { GameState } from "@space-war/shared";
 
-const socket: Socket = io("http://localhost:4000");
+let socket: Socket;
+
+// Build the correct URL for dev mode
+const host = window.location.hostname; // e.g. "192.168.1.251" when you load from another machine
+const devUrl = `http://${host}:4000`;
+
+socket = io(devUrl);
 
 export function initSocket(
   onGameState: (state: GameState) => void

@@ -11,7 +11,7 @@
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "socket.io-client": "^4.7.0",
-    "@space-war/shared": "0.1.0"
+    "@space-war/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^18.0.0",

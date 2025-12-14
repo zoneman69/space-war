@@ -1,0 +1,21 @@
+# Node
+node_modules
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist
+client/dist
+server/dist
+shared/dist
+
+# Env
+.env
+.env.local
+
+# OS / editor
+.DS_Store
+*.swp
+.idea
+.vscode
