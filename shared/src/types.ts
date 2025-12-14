@@ -14,7 +14,9 @@ export type UnitType =
 export interface Unit {
   id: string;
   type: UnitType;
+  movementRemaining: number;
 }
+
 
 export interface StarSystem {
   id: SystemID;
@@ -22,7 +24,7 @@ export interface StarSystem {
   ownerId: PlayerID | null;
   resourceValue: number;
   connectedSystems: SystemID[];
-  hasShipyard: boolean;
+  hasShipyard: boolean; // Factory/shipyard
 }
 
 export interface Fleet {
@@ -40,11 +42,18 @@ export interface PlayerState {
 }
 
 export type TurnPhase =
-  | "income"
   | "purchase"
   | "movement"
   | "combat"
   | "deploy";
+
+export interface PendingPurchase {
+  id: string;
+  playerId: PlayerID;
+  systemId: SystemID;
+  unitType: UnitType;
+  count: number;
+}
 
 export interface GameState {
   id: GameID;
@@ -54,18 +63,24 @@ export interface GameState {
   currentPlayerId: PlayerID;
   phase: TurnPhase;
   round: number;
-  lastCombatLog?: string[]; // optional text log of last combat
+  lastCombatLog?: string[];
+  pendingPurchases: PendingPurchase[];
+
+  // NEW
+  winnerPlayerId?: PlayerID;
+  eliminatedPlayerIds: PlayerID[];
 }
 
-// Simple unit definitions with costs + combat stats
+
 export const UNIT_DEFS: Record<
   UnitType,
-  { name: string; cost: number; attack: number; defense: number }
+  { name: string; cost: number; attack: number; defense: number; movement: number }
 > = {
-  fighter:    { name: "Fighter",    cost: 6,  attack: 3, defense: 3 },
-  destroyer:  { name: "Destroyer",  cost: 8,  attack: 3, defense: 4 },
-  cruiser:    { name: "Cruiser",    cost: 12, attack: 4, defense: 4 },
-  battleship: { name: "Battleship", cost: 18, attack: 4, defense: 5 },
-  carrier:    { name: "Carrier",    cost: 14, attack: 2, defense: 4 },
-  transport:  { name: "Transport",  cost: 7,  attack: 1, defense: 1 }
+  fighter:    { name: "Fighter",    cost: 6,  attack: 3, defense: 3, movement: 2 },
+  destroyer:  { name: "Destroyer",  cost: 8,  attack: 3, defense: 4, movement: 2 },
+  cruiser:    { name: "Cruiser",    cost: 12, attack: 4, defense: 4, movement: 2 },
+  battleship: { name: "Battleship", cost: 18, attack: 4, defense: 5, movement: 1 },
+  carrier:    { name: "Carrier",    cost: 14, attack: 2, defense: 4, movement: 1 },
+  transport:  { name: "Transport",  cost: 7,  attack: 1, defense: 1, movement: 2 }
 };
+

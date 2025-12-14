@@ -33,26 +33,34 @@ export function startGame() {
   socket.emit("startGame");
 }
 
-export function endTurn() {
-  socket.emit("endTurn");
+export function endTurn(playerName: string) {
+  console.log("Emitting endTurn with playerName:", playerName);
+  socket.emit("endTurn", { playerName });
 }
 
 export function purchaseUnits(
   playerName: string,
   unitType: UnitType,
-  count: number
+  count: number,
+  systemId: string
 ) {
-  socket.emit("purchaseUnits", { playerName, unitType, count });
+  socket.emit("purchaseUnits", { playerName, unitType, count, systemId });
 }
 
 export function moveFleet(
   playerName: string,
   fromSystemId: string,
-  toSystemId: string
+  toSystemId: string,
+  unitIds: string[]
 ) {
-  socket.emit("moveFleet", { playerName, fromSystemId, toSystemId });
+  socket.emit("moveFleet", { playerName, fromSystemId, toSystemId, unitIds });
 }
+
 
 export function resolveCombat(systemId: string) {
   socket.emit("resolveCombat", systemId);
+}
+
+export function buildFactory(playerName: string, systemId: string) {
+  socket.emit("buildFactory", { playerName, systemId });
 }

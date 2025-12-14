@@ -11,9 +11,17 @@ interface GalaxyMapProps {
 
 const SYSTEM_LAYOUT: Record<string, { x: number; y: number }> = {
   "sys-1": { x: 100, y: 200 }, // Sol
-  "sys-2": { x: 300, y: 150 }, // Alpha Centauri
-  "sys-3": { x: 250, y: 300 }, // Vega
-  "sys-4": { x: 500, y: 220 }  // Sirius
+  "sys-2": { x: 200, y: 130 }, // Alpha Centauri
+  "sys-3": { x: 200, y: 270 }, // Vega
+  "sys-4": { x: 300, y: 80 },  // Sirius
+  "sys-5": { x: 300, y: 320 }, // Procyon
+  "sys-6": { x: 400, y: 120 }, // Betelgeuse
+  "sys-7": { x: 400, y: 280 }, // Deneb
+  "sys-8": { x: 500, y: 80 },  // Rigel
+  "sys-9": { x: 500, y: 240 }, // Polaris
+  "sys-10": { x: 500, y: 330 }, // Altair
+  "sys-11": { x: 600, y: 220 }, // Bellatrix
+  "sys-12": { x: 600, y: 140 }  // Capella
 };
 
 const PLAYER_COLORS = [
