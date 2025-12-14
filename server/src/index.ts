@@ -77,6 +77,46 @@ app.get("/api/state", (_req, res) => {
   res.json(gameState);
 });
 
+// --- Game logic functions ---
+
+function startGameIfPossible() {
+  if (gameState.players.length === 0) {
+    console.log("Cannot start game: no players");
+    return;
+  }
+
+  // If game already started (someone owns a system), don't restart
+  const alreadyStarted = gameState.systems.some((s) => s.ownerId !== null);
+  if (alreadyStarted) {
+    console.log("Game already started, ignoring start request");
+    return;
+  }
+
+  console.log("Starting game...");
+
+  // For now, assign home systems in order of players to the first N systems
+  const systems = gameState.systems;
+  const players = gameState.players;
+
+  players.forEach((player, index) => {
+    const system = systems[index % systems.length]; // wrap if more players than systems
+    system.ownerId = player.id;
+
+    // Add as home system
+    player.homeSystems = [system.id];
+  });
+
+  // Set the first player as the current player
+  gameState.currentPlayerId = players[0].id;
+  gameState.phase = "income";
+  gameState.round = 1;
+
+  console.log(
+    "Game started. Player home systems:",
+    players.map((p) => `${p.displayName} -> ${p.homeSystems.join(",")}`)
+  );
+}
+
 // --- Socket.IO events ---
 
 io.on("connection", (socket) => {
@@ -98,20 +138,26 @@ io.on("connection", (socket) => {
         id: playerId,
         displayName: playerName,
         resources: 10, // starting resources
-        homeSystems: [] // we’ll assign later when we do setup logic
+        homeSystems: []
       };
 
       gameState.players.push(newPlayer);
 
-      // if no current player yet, set this one
+      // if no current player yet, set this one (will be overwritten on startGame)
       if (!gameState.currentPlayerId) {
         gameState.currentPlayerId = playerId;
       }
 
-      console.log("Current players:", gameState.players.map(p => p.displayName));
+      console.log("Current players:", gameState.players.map((p) => p.displayName));
     }
 
     // Broadcast updated game state to everyone
+    io.emit("gameState", gameState);
+  });
+
+  socket.on("startGame", () => {
+    console.log("Received startGame request from", socket.id);
+    startGameIfPossible();
     io.emit("gameState", gameState);
   });
 
