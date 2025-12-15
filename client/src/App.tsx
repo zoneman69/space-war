@@ -162,6 +162,26 @@ const App: React.FC = () => {
     factoryBuildSystemId
   ]);
 
+    useEffect(() => {
+    if (!me || !gameState) return;
+    if (gameState.winnerPlayerId) return;
+
+    const amCurrent =
+      gameState.currentPlayerId === me.id;
+
+    if (amCurrent && gameState.phase === "deploy") {
+      // No player interaction here; auto-advance
+      endTurn(me.displayName);
+    }
+  }, [
+    gameState?.phase,
+    gameState?.currentPlayerId,
+    gameState?.winnerPlayerId,
+    me?.id,
+    me?.displayName
+  ]);
+
+
   useEffect(() => {
     if (
       !selectedSystemId ||
@@ -297,28 +317,29 @@ const App: React.FC = () => {
 
   // Phase instructions text
   let phaseInstruction = "";
-  if (!isMyTurn) {
+    if (!isMyTurn) {
     phaseInstruction = "Waiting for other players to take their turn.";
   } else {
     switch (phase) {
       case "purchase":
         phaseInstruction =
-          "Purchase units and/or build factories. Units will be placed at the end of your turn.";
+          "Purchase units and/or build factories, then click 'Finish Purchasing'. Units will be placed at the end of your turn.";
         break;
       case "movement":
         phaseInstruction =
-          "Move fleets by clicking a system, then a connected destination.";
+          "Move fleets by clicking a system, then a connected destination. When you're done moving, click 'Finish Moving'.";
         break;
       case "combat":
         phaseInstruction =
-          "Resolve ALL combats in contested systems. You cannot advance to the next step while any system has ships from multiple players.";
+          "Resolve combats in all contested systems by selecting them and pressing 'Resolve Combat'. After all battles are resolved, the game will automatically deploy your units and pass the turn.";
         break;
       case "deploy":
         phaseInstruction =
-          "Units purchased earlier will be placed now. Click Next Step to end your turn.";
+          "Units purchased earlier are being placed now. The turn will automatically pass to the next player.";
         break;
     }
   }
+
 
   const selectedSystemOwner = selectedSystem
     ? players.find((p) => p.id === selectedSystem.ownerId)
@@ -426,6 +447,22 @@ const App: React.FC = () => {
             <p style={{ margin: 0, color: "#cdd9ed", fontSize: "0.95rem" }}>
               {phaseInstruction}
             </p>
+            {isMyTurn && !winner && (
+          <div style={{ marginTop: "0.5rem" }}>
+            {phase === "purchase" && (
+              <button onClick={handleEndTurn}>
+                Finish Purchasing
+              </button>
+            )}
+
+            {phase === "movement" && (
+              <button onClick={handleEndTurn}>
+                Finish Moving
+              </button>
+            )}
+          </div>
+        )}
+
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <input
@@ -444,12 +481,11 @@ const App: React.FC = () => {
               Join
             </button>
             <button
-              onClick={handleStartGame}
-              disabled={players.length === 0 || gameStarted}
-              style={{ padding: "0.5rem 0.8rem" }}
-            >
-              Start Game
-            </button>
+            onClick={handleStartGame}
+            disabled={players.length === 0 || gameStarted}
+          >
+            Start Game
+          </button>
             <button
               onClick={handleEndTurn}
               disabled={!gameStarted || !me || !isMyTurn || !!winner}

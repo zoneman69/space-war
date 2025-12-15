@@ -32,12 +32,13 @@ const FACTORY_COST = 15;
 
 function createDefaultSystems(): StarSystem[] {
   return [
+    // Row 1
     {
       id: "sys-1",
       name: "Sol",
       ownerId: null,
       resourceValue: 5,
-      connectedSystems: ["sys-2", "sys-3"],
+      connectedSystems: ["sys-2", "sys-5", "sys-6"],
       hasShipyard: true
     },
     {
@@ -45,15 +46,15 @@ function createDefaultSystems(): StarSystem[] {
       name: "Alpha Centauri",
       ownerId: null,
       resourceValue: 3,
-      connectedSystems: ["sys-1", "sys-4"],
+      connectedSystems: ["sys-1", "sys-3", "sys-5", "sys-6", "sys-7"],
       hasShipyard: false
     },
     {
       id: "sys-3",
       name: "Vega",
       ownerId: null,
-      resourceValue: 2,
-      connectedSystems: ["sys-1", "sys-5"],
+      resourceValue: 3,
+      connectedSystems: ["sys-2", "sys-4", "sys-6", "sys-7", "sys-8"],
       hasShipyard: false
     },
     {
@@ -61,31 +62,51 @@ function createDefaultSystems(): StarSystem[] {
       name: "Sirius",
       ownerId: null,
       resourceValue: 4,
-      connectedSystems: ["sys-2", "sys-6"],
+      connectedSystems: ["sys-3", "sys-7", "sys-8"],
       hasShipyard: true
     },
+
+    // Row 2
     {
       id: "sys-5",
       name: "Procyon",
       ownerId: null,
       resourceValue: 3,
-      connectedSystems: ["sys-3", "sys-7"],
-      hasShipyard: true
+      connectedSystems: ["sys-1", "sys-2", "sys-6", "sys-9", "sys-10"],
+      hasShipyard: false
     },
     {
       id: "sys-6",
       name: "Betelgeuse",
       ownerId: null,
       resourceValue: 4,
-      connectedSystems: ["sys-4", "sys-8"],
-      hasShipyard: false
+      connectedSystems: [
+        "sys-1",
+        "sys-2",
+        "sys-3",
+        "sys-5",
+        "sys-7",
+        "sys-9",
+        "sys-10",
+        "sys-11"
+      ],
+      hasShipyard: true
     },
     {
       id: "sys-7",
       name: "Deneb",
       ownerId: null,
       resourceValue: 3,
-      connectedSystems: ["sys-5", "sys-9"],
+      connectedSystems: [
+        "sys-2",
+        "sys-3",
+        "sys-4",
+        "sys-6",
+        "sys-8",
+        "sys-10",
+        "sys-11",
+        "sys-12"
+      ],
       hasShipyard: false
     },
     {
@@ -93,23 +114,25 @@ function createDefaultSystems(): StarSystem[] {
       name: "Rigel",
       ownerId: null,
       resourceValue: 5,
-      connectedSystems: ["sys-6", "sys-10"],
+      connectedSystems: ["sys-3", "sys-4", "sys-7", "sys-11", "sys-12"],
       hasShipyard: true
     },
+
+    // Row 3
     {
       id: "sys-9",
-      name: "Polaris",
+      name: "Altair",
       ownerId: null,
       resourceValue: 2,
-      connectedSystems: ["sys-7", "sys-11"],
+      connectedSystems: ["sys-5", "sys-6", "sys-10"],
       hasShipyard: false
     },
     {
       id: "sys-10",
-      name: "Altair",
+      name: "Polaris",
       ownerId: null,
       resourceValue: 3,
-      connectedSystems: ["sys-8", "sys-12"],
+      connectedSystems: ["sys-5", "sys-6", "sys-7", "sys-9", "sys-11"],
       hasShipyard: false
     },
     {
@@ -117,7 +140,7 @@ function createDefaultSystems(): StarSystem[] {
       name: "Bellatrix",
       ownerId: null,
       resourceValue: 4,
-      connectedSystems: ["sys-9", "sys-12"],
+      connectedSystems: ["sys-6", "sys-7", "sys-8", "sys-10", "sys-12"],
       hasShipyard: false
     },
     {
@@ -125,11 +148,12 @@ function createDefaultSystems(): StarSystem[] {
       name: "Capella",
       ownerId: null,
       resourceValue: 4,
-      connectedSystems: ["sys-10", "sys-11"],
+      connectedSystems: ["sys-7", "sys-8", "sys-11"],
       hasShipyard: true
     }
   ];
 }
+
 
 let nextPlayerNum = 1;
 let nextFleetNum = 1;
